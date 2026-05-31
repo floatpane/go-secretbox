@@ -1,0 +1,48 @@
+# GoReleaser configuration for go-secretbox.
+# Library only — no binaries. Produces a source archive + GitHub-native
+# release notes on tag push.
+# See: https://goreleaser.com/customization/
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - skip: true
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+  format: tar.gz
+
+archives:
+  - id: noop
+    meta: true
+    name_template: "{{ .ProjectName }}_{{ .Version }}_metadata"
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github-native
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ---
+    **Install:**
+
+    ```bash
+    go get github.com/floatpane/go-secretbox@{{ .Tag }}
+    ```
+
+    See the [Go reference](https://pkg.go.dev/github.com/floatpane/go-secretbox) for full API documentation.

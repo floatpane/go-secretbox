@@ -1,0 +1,109 @@
+---
+title: The Vault
+---
+
+# The Vault
+
+A `Vault` implements the "secure mode" pattern: enable it once with a master
+password, and from then on the application's files are encrypted on disk and
+transparently decrypted in memory while the vault is unlocked.
+
+```go
+v := secretbox.NewVault("/home/me/.config/app/secure.meta")
+```
+
+`NewVault` touches nothing on disk. It just binds a metadata path and the
+default primitives (override with `WithKDF` / `WithCipher`).
+
+## Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized
+    Uninitialized --> Unlocked: Init(password)
+    note right of Uninitialized
+        Initialized() == false
+        no secure.meta yet
+    end note
+
+    Unlocked --> Locked: Lock() / zero key
+    Locked --> Unlocked: Unlock(password) ✓
+    Locked --> Locked: Unlock(wrong) → ErrWrongPassword
+
+    state Unlocked {
+        [*] --> ready
+        ready --> ready: Encrypt / Decrypt / ReadFile / WriteFile
+    }
+
+    Unlocked --> [*]: process exit
+    Locked --> [*]: process exit
+```
+
+- **`Init(password)`** — first run only. Generates a salt, derives the key,
+  encrypts the sentinel, writes `secure.meta`, and leaves the vault **unlocked**.
+- **`Unlock(password)`** — verifies against the sentinel and loads the session
+  key. Reconstructs the KDF + cipher from metadata.
+- **`Lock()`** — zeroes and drops the session key.
+- **`Initialized()` / `Locked()`** — state checks.
+
+## How Unlock verifies a password
+
+No password is stored. `secure.meta` holds a salt and the *sentinel* — a known
+constant string encrypted under the key. `Unlock` re-derives the key and tries
+to decrypt the sentinel; a constant-time match proves the password.
+
+```mermaid
+sequenceDiagram
+    participant A as App
+    participant V as Vault
+    participant M as secure.meta
+    participant K as Argon2id
+
+    A->>V: Unlock(password)
+    V->>M: read salt, sentinel, kdf, cipher, params
+    M-->>V: metadata
+    V->>K: DeriveKey(password, salt, keySize)
+    K-->>V: candidate key
+    V->>V: Decrypt(sentinel, key)
+    alt plaintext == "secretbox-verified" (constant-time)
+        V->>V: store session key
+        V-->>A: nil
+    else mismatch or AEAD failure
+        V->>V: zero(key)
+        V-->>A: ErrWrongPassword
+    end
+```
+
+## The metadata file
+
+`secure.meta` is plain JSON — safe to store unencrypted. Its mere existence is
+what `Initialized()` reports.
+
+```json
+{
+  "version": 1,
+  "kdf": "argon2id",
+  "cipher": "aes-256-gcm",
+  "salt": "Base64…",
+  "sentinel": "Base64 ciphertext of \"secretbox-verified\"",
+  "params": { "time": 3, "memory": 65536, "threads": 4 }
+}
+```
+
+## Transparent file encryption
+
+While unlocked, `WriteFile` encrypts before writing and `ReadFile` decrypts
+after reading — same session key, same cipher recorded in metadata.
+
+```go
+v.WriteFile(path, data, 0o600) // encrypts with the session key
+got, _ := v.ReadFile(path)     // decrypts
+```
+
+> [!IMPORTANT]
+> When the vault is **locked**, `Encrypt`, `Decrypt`, `ReadFile`, and
+> `WriteFile` all return `ErrLocked`. There is no silent passthrough — encrypted
+> data is never written or read as plaintext by accident.
+
+A `Vault` is safe for concurrent use once unlocked; `Lock` and the rotation
+methods take a write lock internally.

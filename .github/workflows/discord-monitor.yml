@@ -1,0 +1,69 @@
+name: Floatpane Activity Monitor
+
+on:
+  push:
+  issues:
+    types: [opened, edited, deleted, closed, reopened]
+  pull_request_target:
+    types: [opened, edited, closed, reopened]
+  issue_comment:
+    types: [created, deleted]
+  fork:
+  watch:
+    types: [started] # fires when someone stars the repo
+  discussion:
+    types: [created, answered]
+
+jobs:
+  discord-audit-log:
+    name: Send Discord Audit Log
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse Event and Send Webhook
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL_AUDIT_LOG }}
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          ACTOR="${{ github.actor }}"
+          REPO="${{ github.repository }}"
+          ACTION="${{ github.event.action }}"
+
+          URL="https://github.com/$REPO"
+
+          if [ "$EVENT_NAME" == "issues" ]; then
+            TITLE="🐛 Issue $ACTION in $REPO"
+            URL="${{ github.event.issue.html_url }}"
+          elif [ "$EVENT_NAME" == "pull_request" ] || [ "$EVENT_NAME" == "pull_request_target" ]; then
+            TITLE="🔄 Pull Request $ACTION in $REPO"
+            URL="${{ github.event.pull_request.html_url }}"
+          elif [ "$EVENT_NAME" == "push" ]; then
+            TITLE="⬆️ Code Pushed to $REPO"
+            URL="${{ github.event.compare }}"
+          elif [ "$EVENT_NAME" == "issue_comment" ]; then
+            TITLE="💬 Comment $ACTION on an Issue/PR"
+            URL="${{ github.event.comment.html_url }}"
+          elif [ "$EVENT_NAME" == "watch" ]; then
+            TITLE="⭐ Repo Starred!"
+          elif [ "$EVENT_NAME" == "fork" ]; then
+            TITLE="🍴 Repo Forked!"
+          elif [ "$EVENT_NAME" == "discussion" ]; then
+            TITLE="🗣️ Discussion $ACTION"
+            URL="${{ github.event.discussion.html_url }}"
+          else
+            TITLE="🔔 Activity ($EVENT_NAME) in $REPO"
+          fi
+
+          jq -n \
+            --arg title "$TITLE" \
+            --arg url "$URL" \
+            --arg desc "**User:** \`$ACTOR\` triggered \`$EVENT_NAME\`.\n\n[**View this activity on GitHub**]($url)" \
+            '{
+              username: "Floatpane Monitor",
+              avatar_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 0
+              }]
+            }' | curl -H "Content-Type: application/json" -d @- $DISCORD_WEBHOOK_URL

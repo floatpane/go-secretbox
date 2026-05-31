@@ -1,0 +1,24 @@
+# Binaries / test outputs
+*.test
+*.out
+*.exe
+*.coverage
+
+# Build / release output
+dist/
+bin/
+
+# IDE / editor cruft
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Docs site
+docs/node_modules/
+docs/.next/
+docs/out/
+
+# Local env
+.env
+.env.local
