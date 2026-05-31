@@ -107,3 +107,42 @@ got, _ := v.ReadFile(path)     // decrypts
 
 A `Vault` is safe for concurrent use once unlocked; `Lock` and the rotation
 methods take a write lock internally.
+
+## Bridging to raw-key APIs
+
+Most callers should drive all encryption through the vault — `Encrypt`,
+`Decrypt`, `ReadFile`, `WriteFile`. For the cases where an existing API stores
+or passes around a raw key (a message struct, a legacy global), `Key()` exposes
+a copy of the current session key:
+
+```go
+key := v.Key() // nil if locked
+defer func() {
+    for i := range key { key[i] = 0 }
+}()
+```
+
+```mermaid
+flowchart LR
+    subgraph vault [Inside Vault]
+        sk[/session key/]
+    end
+    call([v.Key()]) --> copy["allocate copy\nof key bytes"]
+    copy --> ret([returned slice])
+    sk -.->|copied, not moved| copy
+
+    note1["Lock() zeroes the\ninternal key only —\nnot your copy"]
+    ret --- note1
+```
+
+Three things to know:
+
+1. **Independent copy.** Mutating the returned slice does not affect the
+   vault's internal key, and the vault's own `Encrypt`/`Decrypt` continue
+   working normally.
+2. **`Lock()` does not zero your copy.** Once you call `Key()`, you own that
+   memory. Zero it explicitly when you're done — a `defer` loop is the
+   idiomatic pattern shown above.
+3. **Prefer vault operations when possible.** `Key()` exists to bridge legacy
+   or cross-package APIs. If you control the call site, `Encrypt` and
+   `WriteFile` are simpler and never expose key material.

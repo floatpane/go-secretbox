@@ -218,6 +218,30 @@ func TestVaultChangePasswordLocked(t *testing.T) {
 	}
 }
 
+func TestVaultKeyAccessor(t *testing.T) {
+	v := newTestVault(t)
+	if v.Key() != nil {
+		t.Fatal("uninitialized vault key should be nil")
+	}
+	if err := v.Init("pw"); err != nil {
+		t.Fatal(err)
+	}
+	k := v.Key()
+	if len(k) == 0 {
+		t.Fatal("expected non-nil key after Init")
+	}
+	// Mutating the copy must not affect internal key.
+	enc, _ := v.Encrypt([]byte("x"))
+	k[0] ^= 0xff
+	if _, err := v.Decrypt(enc); err != nil {
+		t.Fatal("mutating Key() copy corrupted vault key")
+	}
+	v.Lock()
+	if v.Key() != nil {
+		t.Fatal("locked vault key should be nil")
+	}
+}
+
 func TestVaultDefaultCipherIsAESGCM(t *testing.T) {
 	v := NewVault(filepath.Join(t.TempDir(), "m"), WithKDF(fastArgon))
 	if v.cipher.ID() != "aes-256-gcm" {

@@ -165,6 +165,30 @@ func (v *Vault) Lock() {
 	v.mu.Unlock()
 }
 
+// Key returns a copy of the current session key, or nil if the vault is
+// locked.
+//
+// The returned slice is an independent copy — mutating it does not affect the
+// key stored inside the vault, and the vault's Lock method will not zero the
+// copy. Callers that hold the key beyond the immediate call should zero it
+// explicitly (e.g. with a deferred loop) once it is no longer needed, to
+// shorten the window during which key material sits in memory.
+//
+// The primary use case is bridging to an API that stores or passes around a
+// raw key (as opposed to driving all encryption through the vault itself). For
+// normal encrypt/decrypt operations, prefer Encrypt, Decrypt, ReadFile, and
+// WriteFile, which never expose the key.
+func (v *Vault) Key() []byte {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.key == nil {
+		return nil
+	}
+	out := make([]byte, len(v.key))
+	copy(out, v.key)
+	return out
+}
+
 // Locked reports whether the session key is absent.
 func (v *Vault) Locked() bool {
 	v.mu.RLock()
